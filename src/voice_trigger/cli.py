@@ -14,23 +14,101 @@ from voice_trigger.sources import list_sources
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="voice-trigger")
+    parser = argparse.ArgumentParser(
+        prog="voice-trigger",
+        description=(
+            "Listen to a microphone via parec and act on short loud sounds. "
+            "Typical workflow: use `sources` to find a --source name, "
+            "`monitor` to watch levels and tune --threshold by eye, "
+            "then `run` with that threshold to trigger a command."
+        ),
+    )
     subparsers = parser.add_subparsers(dest="subcommand", required=True)
 
-    run_parser = subparsers.add_parser("run")
-    run_parser.add_argument("--source", default=None)
-    run_parser.add_argument("--threshold", type=float, default=0.3)
-    run_parser.add_argument("--cooldown", type=float, default=0.5)
+    run_parser = subparsers.add_parser(
+        "run",
+        description=(
+            "Watch the microphone and run COMMAND when a loud sound is detected. "
+            "In one-shot mode (the default) it exits 0 as soon as the sound "
+            "triggers, or non-zero if --timeout elapses first. With --loop it "
+            "runs forever, triggering COMMAND on every detected sound and "
+            "ignoring --timeout."
+        ),
+        help="run COMMAND when a loud sound is detected",
+    )
+    run_parser.add_argument(
+        "--source",
+        default=None,
+        help="recording source name (see `voice-trigger sources`); "
+        "default is the system default source",
+    )
+    run_parser.add_argument(
+        "--threshold",
+        type=float,
+        default=0.3,
+        help="peak level (0-1) that counts as a trigger; use `voice-trigger "
+        "monitor` to find a good value for your mic and environment "
+        "(default: 0.3)",
+    )
+    run_parser.add_argument(
+        "--cooldown",
+        type=float,
+        default=0.5,
+        help="minimum seconds between triggers, to avoid re-triggering on "
+        "the same sound (default: 0.5)",
+    )
     timeout_group = run_parser.add_mutually_exclusive_group()
-    timeout_group.add_argument("--timeout", type=float, default=None)
-    timeout_group.add_argument("--loop", action="store_true")
-    run_parser.add_argument("command", nargs="*")
+    timeout_group.add_argument(
+        "--timeout",
+        type=float,
+        default=None,
+        help="in one-shot mode, give up and exit non-zero after this many "
+        "seconds with no trigger; ignored with --loop (default: wait "
+        "forever)",
+    )
+    timeout_group.add_argument(
+        "--loop",
+        action="store_true",
+        help="run forever, triggering COMMAND on every detected sound "
+        "instead of exiting after the first one; disables --timeout",
+    )
+    run_parser.add_argument(
+        "command",
+        nargs="*",
+        help="optional command and arguments to run on trigger, e.g. "
+        "`voice-trigger run --threshold 0.5 -- notify-send hi`; run "
+        "directly (no shell), and everything after -- is passed through "
+        "as-is",
+    )
 
-    monitor_parser = subparsers.add_parser("monitor")
-    monitor_parser.add_argument("--source", default=None)
-    monitor_parser.add_argument("--threshold", type=float, default=0.3)
+    monitor_parser = subparsers.add_parser(
+        "monitor",
+        description=(
+            "Print the microphone's peak level for each audio chunk, "
+            "marking chunks that would trigger at the given --threshold. "
+            "Use this to pick a --threshold value before running "
+            "`voice-trigger run`."
+        ),
+        help="print live mic levels to help tune --threshold",
+    )
+    monitor_parser.add_argument(
+        "--source",
+        default=None,
+        help="recording source name (see `voice-trigger sources`); "
+        "default is the system default source",
+    )
+    monitor_parser.add_argument(
+        "--threshold",
+        type=float,
+        default=0.3,
+        help="peak level (0-1) to mark as TRIGGER in the printed output (default: 0.3)",
+    )
 
-    subparsers.add_parser("sources")
+    subparsers.add_parser(
+        "sources",
+        description="List available PulseAudio/PipeWire recording source names.",
+        help="list available recording source names",
+    )
 
     return parser
 
