@@ -1,6 +1,14 @@
 import io
 
-from voice_trigger.audio import CHUNK_SIZE, _read_exact, build_parec_command
+import pytest
+
+from voice_trigger import audio
+from voice_trigger.audio import (
+    CHUNK_SIZE,
+    AudioCapture,
+    _read_exact,
+    build_parec_command,
+)
 
 
 def test_chunk_size_is_20ms_at_16khz_mono_16bit():
@@ -52,3 +60,56 @@ class _PartialReader:
 def test_read_exact_assembles_multiple_partial_reads():
     stream = _PartialReader([b"ab", b"cd", b"ef"])
     assert _read_exact(stream, 6) == b"abcdef"
+
+
+def _use_fake_subprocess(monkeypatch: pytest.MonkeyPatch, shell_script: str) -> None:
+    """Make AudioCapture spawn `sh -c shell_script` instead of `parec`."""
+    monkeypatch.setattr(
+        audio, "build_parec_command", lambda source: ["sh", "-c", shell_script]
+    )
+
+
+def test_audio_capture_chunks_yields_full_chunk_then_stops(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    data = b"x" * CHUNK_SIZE
+    script = f"printf '%b' '{data.decode('latin-1')}'; exit 0"
+    _use_fake_subprocess(monkeypatch, script)
+
+    with AudioCapture(None) as capture:
+        chunks = list(capture.chunks())
+
+    assert chunks == [data]
+
+
+def test_audio_capture_chunks_raises_on_nonzero_exit_with_partial_chunk(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _use_fake_subprocess(monkeypatch, "printf 'short'; exit 2")
+
+    with AudioCapture(None) as capture, pytest.raises(RuntimeError):
+        list(capture.chunks())
+
+
+def test_audio_capture_chunks_does_not_raise_on_clean_eof_with_partial_chunk(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _use_fake_subprocess(monkeypatch, "printf 'short'; exit 0")
+
+    with AudioCapture(None) as capture:
+        chunks = list(capture.chunks())
+
+    assert chunks == []
+
+
+def test_audio_capture_exit_terminates_still_running_process(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _use_fake_subprocess(monkeypatch, "sleep 5")
+
+    with AudioCapture(None) as capture:
+        process = capture._process
+        assert process is not None
+        assert process.poll() is None
+
+    assert process.poll() is not None
