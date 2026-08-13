@@ -16,10 +16,15 @@ def parse_source_names(output: str) -> list[str]:
 
 
 def list_sources() -> list[str]:
-    result = subprocess.run(
-        ["pactl", "list", "short", "sources"],
-        capture_output=True,
-        check=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            ["pactl", "list", "short", "sources"],
+            capture_output=True,
+            check=True,
+            text=True,
+        )
+    except subprocess.CalledProcessError as error:
+        raise RuntimeError(
+            f"pactl exited with code {error.returncode}: {error.stderr.strip()}"
+        ) from error
     return parse_source_names(result.stdout)
