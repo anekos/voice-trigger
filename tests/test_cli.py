@@ -107,6 +107,20 @@ def test_monitor_prints_level_for_each_chunk(monkeypatch, capsys):
     assert "TRIGGER" in lines[1]
 
 
+def test_monitor_overwrites_non_trigger_lines_and_keeps_trigger_lines(
+    monkeypatch, capsys
+):
+    monkeypatch.setattr(
+        cli, "AudioCapture", _FakeAudioCapture([_quiet_chunk(), _loud_chunk()])
+    )
+    args = cli.build_parser().parse_args(["monitor"])
+    assert cli._monitor(args) == 0
+    out = capsys.readouterr().out
+    assert out.count("\r") == 1
+    assert out.count("\n") == 1
+    assert out.index("\r") < out.index("\n")
+
+
 def test_sources_prints_each_name(monkeypatch, capsys):
     monkeypatch.setattr(cli, "list_sources", lambda: ["a", "b"])
     assert cli._sources() == 0

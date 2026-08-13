@@ -154,8 +154,10 @@ def _monitor(args: argparse.Namespace) -> int:
     with AudioCapture(args.source) as capture:
         for chunk in capture.chunks():
             level = peak_level(chunk)
-            marker = "TRIGGER" if level >= args.threshold else ""
-            print(f"level={level:.3f} threshold={args.threshold:.3f} {marker}")
+            triggered = level >= args.threshold
+            marker = "TRIGGER" if triggered else ""
+            line = f"level={level:.3f} threshold={args.threshold:.3f} {marker:<7}"
+            print(line, end="\n" if triggered else "\r", flush=True)
     return 0
 
 
