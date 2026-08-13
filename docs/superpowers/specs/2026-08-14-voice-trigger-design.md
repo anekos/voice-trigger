@@ -25,6 +25,7 @@ PipeWire/PulseAudio 環境で、舌打ちなどの短い音を検出し、それ
 ```
 voice-trigger run [--source SOURCE] [--threshold 0.3] [--cooldown 0.5] [--timeout SEC] [--loop] [-- COMMAND [ARGS...]]
 voice-trigger monitor [--source SOURCE] [--threshold 0.3]
+voice-trigger sources
 ```
 
 共通オプション:
@@ -48,6 +49,10 @@ voice-trigger monitor [--source SOURCE] [--threshold 0.3]
 
 コマンド実行を一切行わず、`--cooldown` の概念も持たない。チャンクごとの現在のピークレベルと閾値超え判定を標準出力に流し続ける、`--threshold` 調整専用のモード。
 
+### `sources` の動作
+
+`pactl list short sources` を実行し、その結果からソース名の列だけを抽出して1行ずつ標準出力に表示する。ここで表示された名前をそのまま `--source` に渡せる。
+
 ## データフロー
 
 1. `audio.py` が `parec` を起動し、PCMチャンクを順次生成。
@@ -65,4 +70,5 @@ voice-trigger monitor [--source SOURCE] [--threshold 0.3]
 
 - `OnsetDetector` は合成PCM配列を入力にした純粋な単体テストでカバーする(閾値・クールダウンの境界条件、立ち上がりエッジの判定など)。
 - `audio.py` はサブプロセス起動の薄いラッパーに留め、実機の `parec` を要する統合テストは対象外とする。コマンド組み立て(引数の並び)部分のみ単体テストする。
+- `sources` サブコマンドの `pactl list short sources` 出力からソース名を抽出するパース処理は、サンプル出力を入力にした単体テストでカバーする。
 - CLI の引数パース(`--loop` と `--timeout` の排他など)は argparse レベルの単体テストでカバーする。
