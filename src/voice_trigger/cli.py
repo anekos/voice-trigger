@@ -10,7 +10,7 @@ from collections.abc import Sequence
 
 from voice_trigger.audio import AudioCapture
 from voice_trigger.detector import OnsetDetector, peak_level
-from voice_trigger.sources import list_sources
+from voice_trigger.sources import get_default_source, list_sources
 
 MONITOR_DISPLAY_INTERVAL = 0.1  # seconds; throttles monitor's output to a readable rate
 
@@ -147,6 +147,7 @@ def _run(args: argparse.Namespace) -> int:
     detector = OnsetDetector(threshold=args.threshold, cooldown=args.cooldown)
     deadline = None if args.timeout is None else time.monotonic() + args.timeout
     with AudioCapture(args.source) as capture:
+        _print_selected_source(args.source)
         for chunk in capture.chunks():
             now = time.monotonic()
             if detector.process(chunk, now):
@@ -163,6 +164,7 @@ def _monitor(args: argparse.Namespace) -> int:
     peak = 0.0
     last_print: float | None = None
     with AudioCapture(args.source) as capture:
+        _print_selected_source(args.source)
         for chunk in capture.chunks():
             peak = max(peak, peak_level(chunk))
             now = time.monotonic()
@@ -175,6 +177,10 @@ def _monitor(args: argparse.Namespace) -> int:
             peak = 0.0
             last_print = now
     return 0
+
+
+def _print_selected_source(source: str | None) -> None:
+    print(f"source: {source or get_default_source()}", file=sys.stderr)
 
 
 def _sources() -> int:

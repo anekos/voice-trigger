@@ -82,8 +82,26 @@ def test_monitor_accepts_short_options():
     assert args.threshold == 0.4
 
 
+def test_run_prints_selected_source_to_stderr(monkeypatch, capsys):
+    monkeypatch.setattr(cli, "AudioCapture", _FakeAudioCapture([_quiet_chunk()]))
+    monkeypatch.setattr(cli.time, "monotonic", _fake_clock([0.0, 10.0]))
+    args = cli.build_parser().parse_args(["run", "-s", "mysrc", "-T", "5"])
+    cli._run(args)
+    assert capsys.readouterr().err == "source: mysrc\n"
+
+
+def test_run_prints_resolved_default_source_when_no_source_given(monkeypatch, capsys):
+    monkeypatch.setattr(cli, "AudioCapture", _FakeAudioCapture([_quiet_chunk()]))
+    monkeypatch.setattr(cli.time, "monotonic", _fake_clock([0.0, 10.0]))
+    monkeypatch.setattr(cli, "get_default_source", lambda: "defaultsrc")
+    args = cli.build_parser().parse_args(["run", "-T", "5"])
+    cli._run(args)
+    assert capsys.readouterr().err == "source: defaultsrc\n"
+
+
 def test_run_one_shot_triggers_command_and_exits_zero(monkeypatch):
     popen_calls = []
+    monkeypatch.setattr(cli, "get_default_source", lambda: "defaultsrc")
     monkeypatch.setattr(cli.subprocess, "Popen", lambda cmd: popen_calls.append(cmd))
     monkeypatch.setattr(cli, "AudioCapture", _FakeAudioCapture([_loud_chunk()]))
     args = cli.build_parser().parse_args(["run", "--", "echo", "hi"])
@@ -93,6 +111,7 @@ def test_run_one_shot_triggers_command_and_exits_zero(monkeypatch):
 
 def test_run_one_shot_without_command_exits_zero_on_trigger(monkeypatch):
     popen_calls = []
+    monkeypatch.setattr(cli, "get_default_source", lambda: "defaultsrc")
     monkeypatch.setattr(cli.subprocess, "Popen", lambda cmd: popen_calls.append(cmd))
     monkeypatch.setattr(cli, "AudioCapture", _FakeAudioCapture([_loud_chunk()]))
     args = cli.build_parser().parse_args(["run"])
@@ -109,6 +128,7 @@ def test_run_timeout_without_detection_exits_nonzero(monkeypatch):
 
 def test_run_loop_keeps_triggering_command(monkeypatch):
     popen_calls = []
+    monkeypatch.setattr(cli, "get_default_source", lambda: "defaultsrc")
     monkeypatch.setattr(cli.subprocess, "Popen", lambda cmd: popen_calls.append(cmd))
     monkeypatch.setattr(
         cli,
@@ -122,6 +142,7 @@ def test_run_loop_keeps_triggering_command(monkeypatch):
 
 
 def test_monitor_prints_level_for_each_chunk(monkeypatch, capsys):
+    monkeypatch.setattr(cli, "get_default_source", lambda: "defaultsrc")
     monkeypatch.setattr(
         cli, "AudioCapture", _FakeAudioCapture([_quiet_chunk(), _loud_chunk()])
     )
@@ -137,6 +158,7 @@ def test_monitor_prints_level_for_each_chunk(monkeypatch, capsys):
 def test_monitor_overwrites_non_trigger_lines_and_keeps_trigger_lines(
     monkeypatch, capsys
 ):
+    monkeypatch.setattr(cli, "get_default_source", lambda: "defaultsrc")
     monkeypatch.setattr(
         cli, "AudioCapture", _FakeAudioCapture([_quiet_chunk(), _loud_chunk()])
     )
@@ -152,6 +174,7 @@ def test_monitor_overwrites_non_trigger_lines_and_keeps_trigger_lines(
 def test_monitor_throttles_display_and_keeps_peak_seen_between_prints(
     monkeypatch, capsys
 ):
+    monkeypatch.setattr(cli, "get_default_source", lambda: "defaultsrc")
     monkeypatch.setattr(
         cli,
         "AudioCapture",
@@ -164,6 +187,16 @@ def test_monitor_throttles_display_and_keeps_peak_seen_between_prints(
     assert len(lines) == 2  # the loud chunk at t=0.05 didn't get its own print
     assert "TRIGGER" not in lines[0]
     assert "TRIGGER" in lines[1]  # but its peak wasn't lost
+
+
+def test_monitor_prints_selected_source_to_stderr(monkeypatch, capsys):
+    monkeypatch.setattr(
+        cli, "AudioCapture", _FakeAudioCapture([_quiet_chunk(), _loud_chunk()])
+    )
+    monkeypatch.setattr(cli.time, "monotonic", _fake_clock([0.0, 0.2]))
+    args = cli.build_parser().parse_args(["monitor", "-s", "mysrc"])
+    cli._monitor(args)
+    assert capsys.readouterr().err == "source: mysrc\n"
 
 
 def test_sources_prints_each_name(monkeypatch, capsys):
