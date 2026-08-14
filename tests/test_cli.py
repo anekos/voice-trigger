@@ -99,6 +99,7 @@ def test_monitor_prints_level_for_each_chunk(monkeypatch, capsys):
     monkeypatch.setattr(
         cli, "AudioCapture", _FakeAudioCapture([_quiet_chunk(), _loud_chunk()])
     )
+    monkeypatch.setattr(cli.time, "monotonic", _fake_clock([0.0, 0.2]))
     args = cli.build_parser().parse_args(["monitor"])
     assert cli._monitor(args) == 0
     lines = capsys.readouterr().out.strip().splitlines()
@@ -113,12 +114,30 @@ def test_monitor_overwrites_non_trigger_lines_and_keeps_trigger_lines(
     monkeypatch.setattr(
         cli, "AudioCapture", _FakeAudioCapture([_quiet_chunk(), _loud_chunk()])
     )
+    monkeypatch.setattr(cli.time, "monotonic", _fake_clock([0.0, 0.2]))
     args = cli.build_parser().parse_args(["monitor"])
     assert cli._monitor(args) == 0
     out = capsys.readouterr().out
     assert out.count("\r") == 1
     assert out.count("\n") == 1
     assert out.index("\r") < out.index("\n")
+
+
+def test_monitor_throttles_display_and_keeps_peak_seen_between_prints(
+    monkeypatch, capsys
+):
+    monkeypatch.setattr(
+        cli,
+        "AudioCapture",
+        _FakeAudioCapture([_quiet_chunk(), _loud_chunk(), _quiet_chunk()]),
+    )
+    monkeypatch.setattr(cli.time, "monotonic", _fake_clock([0.0, 0.05, 0.15]))
+    args = cli.build_parser().parse_args(["monitor"])
+    assert cli._monitor(args) == 0
+    lines = capsys.readouterr().out.strip().splitlines()
+    assert len(lines) == 2  # the loud chunk at t=0.05 didn't get its own print
+    assert "TRIGGER" not in lines[0]
+    assert "TRIGGER" in lines[1]  # but its peak wasn't lost
 
 
 def test_sources_prints_each_name(monkeypatch, capsys):

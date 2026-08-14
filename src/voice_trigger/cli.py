@@ -12,6 +12,8 @@ from voice_trigger.audio import AudioCapture
 from voice_trigger.detector import OnsetDetector, peak_level
 from voice_trigger.sources import list_sources
 
+MONITOR_DISPLAY_INTERVAL = 0.1  # seconds; throttles monitor's output to a readable rate
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -151,13 +153,20 @@ def _run(args: argparse.Namespace) -> int:
 
 
 def _monitor(args: argparse.Namespace) -> int:
+    peak = 0.0
+    last_print: float | None = None
     with AudioCapture(args.source) as capture:
         for chunk in capture.chunks():
-            level = peak_level(chunk)
-            triggered = level >= args.threshold
+            peak = max(peak, peak_level(chunk))
+            now = time.monotonic()
+            if last_print is not None and now - last_print < MONITOR_DISPLAY_INTERVAL:
+                continue
+            triggered = peak >= args.threshold
             marker = "TRIGGER" if triggered else ""
-            line = f"level={level:.3f} threshold={args.threshold:.3f} {marker:<7}"
+            line = f"level={peak:.3f} threshold={args.threshold:.3f} {marker:<7}"
             print(line, end="\n" if triggered else "\r", flush=True)
+            peak = 0.0
+            last_print = now
     return 0
 
 
