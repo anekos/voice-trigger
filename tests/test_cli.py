@@ -56,6 +56,32 @@ def test_parses_command_after_dashdash():
     assert args.command == ["echo", "hi"]
 
 
+def test_run_accepts_short_options():
+    args = cli.build_parser().parse_args(
+        ["run", "-s", "mysrc", "-t", "0.4", "-c", "0.6", "-T", "5"]
+    )
+    assert args.source == "mysrc"
+    assert args.threshold == 0.4
+    assert args.cooldown == 0.6
+    assert args.timeout == 5.0
+
+
+def test_run_accepts_short_loop_option():
+    args = cli.build_parser().parse_args(["run", "-l"])
+    assert args.loop is True
+
+
+def test_short_loop_and_short_timeout_are_mutually_exclusive():
+    with pytest.raises(SystemExit):
+        cli.build_parser().parse_args(["run", "-l", "-T", "5"])
+
+
+def test_monitor_accepts_short_options():
+    args = cli.build_parser().parse_args(["monitor", "-s", "mysrc", "-t", "0.4"])
+    assert args.source == "mysrc"
+    assert args.threshold == 0.4
+
+
 def test_run_one_shot_triggers_command_and_exits_zero(monkeypatch):
     popen_calls = []
     monkeypatch.setattr(cli.subprocess, "Popen", lambda cmd: popen_calls.append(cmd))

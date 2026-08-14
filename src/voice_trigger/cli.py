@@ -39,12 +39,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="run COMMAND when a loud sound is detected",
     )
     run_parser.add_argument(
+        "-s",
         "--source",
         default=None,
         help="recording source name (see `voice-trigger sources`); "
         "default is the system default source",
     )
     run_parser.add_argument(
+        "-t",
         "--threshold",
         type=float,
         default=0.3,
@@ -53,6 +55,7 @@ def build_parser() -> argparse.ArgumentParser:
         "(default: 0.3)",
     )
     run_parser.add_argument(
+        "-c",
         "--cooldown",
         type=float,
         default=0.5,
@@ -61,6 +64,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     timeout_group = run_parser.add_mutually_exclusive_group()
     timeout_group.add_argument(
+        "-T",
         "--timeout",
         type=float,
         default=None,
@@ -69,6 +73,7 @@ def build_parser() -> argparse.ArgumentParser:
         "forever)",
     )
     timeout_group.add_argument(
+        "-l",
         "--loop",
         action="store_true",
         help="run forever, triggering COMMAND on every detected sound "
@@ -94,12 +99,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="print live mic levels to help tune --threshold",
     )
     monitor_parser.add_argument(
+        "-s",
         "--source",
         default=None,
         help="recording source name (see `voice-trigger sources`); "
         "default is the system default source",
     )
     monitor_parser.add_argument(
+        "-t",
         "--threshold",
         type=float,
         default=0.3,
