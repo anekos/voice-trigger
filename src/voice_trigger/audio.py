@@ -22,6 +22,7 @@ def build_parec_command(source: str | None) -> list[str]:
         f"--format={SAMPLE_FORMAT}",
         f"--rate={SAMPLE_RATE}",
         f"--channels={CHANNELS}",
+        f"--latency-msec={CHUNK_DURATION_MS}",
     ]
     if source is not None:
         command.append(f"--device={source}")

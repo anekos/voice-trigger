@@ -22,6 +22,7 @@ def test_build_parec_command_without_source():
         "--format=s16le",
         "--rate=16000",
         "--channels=1",
+        "--latency-msec=20",
     ]
 
 
@@ -33,6 +34,7 @@ def test_build_parec_command_with_source():
         "--format=s16le",
         "--rate=16000",
         "--channels=1",
+        "--latency-msec=20",
         "--device=alsa_input.example",
     ]
 
