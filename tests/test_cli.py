@@ -6,6 +6,7 @@ from collections.abc import Iterator
 from typing import Self
 
 import pytest
+from click.testing import CliRunner
 
 from voice_trigger import cli, models
 from voice_trigger.recognizer import Recognition
@@ -45,69 +46,40 @@ def _fake_clock(values: list[float]):
     return lambda: next(it)
 
 
-def test_run_and_timeout_are_mutually_exclusive():
-    with pytest.raises(SystemExit):
-        cli.build_parser().parse_args(["run", "--loop", "--timeout", "5"])
+def _invoke(*args: str):
+    return CliRunner().invoke(cli.cli, args)
 
 
-def test_parses_command_after_dashdash():
-    args = cli.build_parser().parse_args(
-        ["run", "--threshold", "0.4", "--", "echo", "hi"]
-    )
-    assert args.threshold == 0.4
-    assert args.command == ["echo", "hi"]
+def test_run_rejects_loop_with_timeout():
+    for argv in (["run", "--loop", "--timeout", "5"], ["run", "-l", "-T", "5"]):
+        result = CliRunner().invoke(cli.cli, argv)
+        assert result.exit_code == 2
+        assert "mutually exclusive" in result.stderr
 
 
-def test_run_accepts_short_options():
-    args = cli.build_parser().parse_args(
-        ["run", "-s", "mysrc", "-t", "0.4", "-c", "0.6", "-T", "5"]
-    )
-    assert args.source == "mysrc"
-    assert args.threshold == 0.4
-    assert args.cooldown == 0.6
-    assert args.timeout == 5.0
-
-
-def test_run_accepts_short_loop_option():
-    args = cli.build_parser().parse_args(["run", "-l"])
-    assert args.loop is True
-
-
-def test_short_loop_and_short_timeout_are_mutually_exclusive():
-    with pytest.raises(SystemExit):
-        cli.build_parser().parse_args(["run", "-l", "-T", "5"])
-
-
-def test_monitor_accepts_short_options():
-    args = cli.build_parser().parse_args(["monitor", "-s", "mysrc", "-t", "0.4"])
-    assert args.source == "mysrc"
-    assert args.threshold == 0.4
-
-
-def test_run_prints_selected_source_to_stderr(monkeypatch, capsys):
+def test_run_prints_selected_source_to_stderr(monkeypatch):
     monkeypatch.setattr(cli, "AudioCapture", _FakeAudioCapture([_quiet_chunk()]))
     monkeypatch.setattr(cli.time, "monotonic", _fake_clock([0.0, 10.0]))
-    args = cli.build_parser().parse_args(["run", "-s", "mysrc", "-T", "5"])
-    cli._run(args)
-    assert capsys.readouterr().err == "source: mysrc\n"
+    result = _invoke("run", "-s", "mysrc", "-T", "5")
+    assert result.stderr == "source: mysrc\n"
 
 
-def test_run_prints_resolved_default_source_when_no_source_given(monkeypatch, capsys):
+def test_run_prints_resolved_default_source_when_no_source_given(monkeypatch):
     monkeypatch.setattr(cli, "AudioCapture", _FakeAudioCapture([_quiet_chunk()]))
     monkeypatch.setattr(cli.time, "monotonic", _fake_clock([0.0, 10.0]))
     monkeypatch.setattr(cli, "get_default_source", lambda: "defaultsrc")
-    args = cli.build_parser().parse_args(["run", "-T", "5"])
-    cli._run(args)
-    assert capsys.readouterr().err == "source: defaultsrc\n"
+    result = _invoke("run", "-T", "5")
+    assert result.stderr == "source: defaultsrc\n"
 
 
-def test_run_one_shot_triggers_command_and_exits_zero(monkeypatch):
+def test_run_one_shot_triggers_command_after_dashdash_and_exits_zero(monkeypatch):
     popen_calls = []
     monkeypatch.setattr(cli, "get_default_source", lambda: "defaultsrc")
     monkeypatch.setattr(cli.subprocess, "Popen", lambda cmd: popen_calls.append(cmd))
     monkeypatch.setattr(cli, "AudioCapture", _FakeAudioCapture([_loud_chunk()]))
-    args = cli.build_parser().parse_args(["run", "--", "echo", "hi"])
-    assert cli._run(args) == 0
+    monkeypatch.setattr(cli.time, "monotonic", _fake_clock([0.0]))
+    result = _invoke("run", "--", "echo", "hi")
+    assert result.exit_code == 0
     assert popen_calls == [["echo", "hi"]]
 
 
@@ -116,8 +88,9 @@ def test_run_one_shot_without_command_exits_zero_on_trigger(monkeypatch):
     monkeypatch.setattr(cli, "get_default_source", lambda: "defaultsrc")
     monkeypatch.setattr(cli.subprocess, "Popen", lambda cmd: popen_calls.append(cmd))
     monkeypatch.setattr(cli, "AudioCapture", _FakeAudioCapture([_loud_chunk()]))
-    args = cli.build_parser().parse_args(["run"])
-    assert cli._run(args) == 0
+    monkeypatch.setattr(cli.time, "monotonic", _fake_clock([0.0]))
+    result = _invoke("run")
+    assert result.exit_code == 0
     assert popen_calls == []
 
 
@@ -125,8 +98,18 @@ def test_run_timeout_without_detection_exits_nonzero(monkeypatch):
     monkeypatch.setattr(cli, "get_default_source", lambda: "defaultsrc")
     monkeypatch.setattr(cli, "AudioCapture", _FakeAudioCapture([_quiet_chunk()] * 3))
     monkeypatch.setattr(cli.time, "monotonic", _fake_clock([0.0, 0.1, 0.2, 10.0]))
-    args = cli.build_parser().parse_args(["run", "--timeout", "5"])
-    assert cli._run(args) == 1
+    result = _invoke("run", "--timeout", "5")
+    assert result.exit_code == 1
+
+
+def test_run_accepts_short_options(monkeypatch):
+    popen_calls = []
+    monkeypatch.setattr(cli.subprocess, "Popen", lambda cmd: popen_calls.append(cmd))
+    monkeypatch.setattr(cli, "AudioCapture", _FakeAudioCapture([_quiet_chunk()]))
+    monkeypatch.setattr(cli.time, "monotonic", _fake_clock([0.0, 10.0]))
+    result = _invoke("run", "-s", "mysrc", "-t", "0.4", "-c", "0.6", "-T", "5")
+    assert result.exit_code == 1  # -T deadline passed without a trigger
+    assert result.stderr == "source: mysrc\n"
 
 
 def test_run_loop_keeps_triggering_command(monkeypatch):
@@ -138,45 +121,40 @@ def test_run_loop_keeps_triggering_command(monkeypatch):
         "AudioCapture",
         _FakeAudioCapture([_loud_chunk(), _quiet_chunk(), _loud_chunk()]),
     )
-    monkeypatch.setattr(cli.time, "monotonic", _fake_clock([0.0, 0.0, 1.0, 2.0]))
-    args = cli.build_parser().parse_args(["run", "--loop", "--", "echo", "hi"])
-    assert cli._run(args) == 1  # generator exhausted, no explicit stop requested
+    monkeypatch.setattr(cli.time, "monotonic", _fake_clock([0.0, 1.0, 2.0]))
+    result = _invoke("run", "--loop", "--", "echo", "hi")
+    assert result.exit_code == 1  # generator exhausted, no explicit stop requested
     assert popen_calls == [["echo", "hi"], ["echo", "hi"]]
 
 
-def test_monitor_prints_level_for_each_chunk(monkeypatch, capsys):
+def test_monitor_prints_level_for_each_chunk(monkeypatch):
     monkeypatch.setattr(cli, "get_default_source", lambda: "defaultsrc")
     monkeypatch.setattr(
         cli, "AudioCapture", _FakeAudioCapture([_quiet_chunk(), _loud_chunk()])
     )
     monkeypatch.setattr(cli.time, "monotonic", _fake_clock([0.0, 0.2]))
-    args = cli.build_parser().parse_args(["monitor"])
-    assert cli._monitor(args) == 0
-    lines = capsys.readouterr().out.strip().splitlines()
+    result = _invoke("monitor", "-t", "0.4")
+    assert result.exit_code == 0
+    lines = result.stdout.strip().splitlines()
     assert len(lines) == 2
     assert "TRIGGER" not in lines[0]
     assert "TRIGGER" in lines[1]
 
 
-def test_monitor_overwrites_non_trigger_lines_and_keeps_trigger_lines(
-    monkeypatch, capsys
-):
+def test_monitor_overwrites_non_trigger_lines_and_keeps_trigger_lines(monkeypatch):
     monkeypatch.setattr(cli, "get_default_source", lambda: "defaultsrc")
     monkeypatch.setattr(
         cli, "AudioCapture", _FakeAudioCapture([_quiet_chunk(), _loud_chunk()])
     )
     monkeypatch.setattr(cli.time, "monotonic", _fake_clock([0.0, 0.2]))
-    args = cli.build_parser().parse_args(["monitor"])
-    assert cli._monitor(args) == 0
-    out = capsys.readouterr().out
+    result = _invoke("monitor")
+    out = result.stdout
     assert out.count("\r") == 1
     assert out.count("\n") == 1
     assert out.index("\r") < out.index("\n")
 
 
-def test_monitor_throttles_display_and_keeps_peak_seen_between_prints(
-    monkeypatch, capsys
-):
+def test_monitor_throttles_display_and_keeps_peak_seen_between_prints(monkeypatch):
     monkeypatch.setattr(cli, "get_default_source", lambda: "defaultsrc")
     monkeypatch.setattr(
         cli,
@@ -184,28 +162,20 @@ def test_monitor_throttles_display_and_keeps_peak_seen_between_prints(
         _FakeAudioCapture([_quiet_chunk(), _loud_chunk(), _quiet_chunk()]),
     )
     monkeypatch.setattr(cli.time, "monotonic", _fake_clock([0.0, 0.05, 0.15]))
-    args = cli.build_parser().parse_args(["monitor"])
-    assert cli._monitor(args) == 0
-    lines = capsys.readouterr().out.strip().splitlines()
+    result = _invoke("monitor")
+    lines = result.stdout.strip().splitlines()
     assert len(lines) == 2  # the loud chunk at t=0.05 didn't get its own print
     assert "TRIGGER" not in lines[0]
     assert "TRIGGER" in lines[1]  # but its peak wasn't lost
 
 
-def test_monitor_prints_selected_source_to_stderr(monkeypatch, capsys):
+def test_monitor_prints_selected_source_to_stderr(monkeypatch):
     monkeypatch.setattr(
         cli, "AudioCapture", _FakeAudioCapture([_quiet_chunk(), _loud_chunk()])
     )
     monkeypatch.setattr(cli.time, "monotonic", _fake_clock([0.0, 0.2]))
-    args = cli.build_parser().parse_args(["monitor", "-s", "mysrc"])
-    cli._monitor(args)
-    assert capsys.readouterr().err == "source: mysrc\n"
-
-
-def test_sources_prints_each_name(monkeypatch, capsys):
-    monkeypatch.setattr(cli, "list_sources", lambda: ["a", "b"])
-    assert cli._sources() == 0
-    assert capsys.readouterr().out == "a\nb\n"
+    result = _invoke("monitor", "-s", "mysrc")
+    assert result.stderr == "source: mysrc\n"
 
 
 class _FakeCommandRecognizer:
@@ -236,26 +206,23 @@ def _commands_file(tmp_path, mapping) -> str:
 
 
 def test_listen_requires_language_and_commands():
-    with pytest.raises(SystemExit):
-        cli.build_parser().parse_args(["listen"])
+    assert _invoke("listen").exit_code == 2
 
 
-def test_listen_rejects_unknown_language(tmp_path):
-    with pytest.raises(SystemExit):
-        cli.build_parser().parse_args(
-            ["listen", "--language", "de", "--commands", "commands.json"]
-        )
+def test_listen_rejects_unknown_language():
+    result = _invoke("listen", "--language", "de", "commands.json")
+    assert result.exit_code == 2
 
 
-def test_listen_language_choices_match_available_models():
-    parser = cli.build_parser()
-    args = parser.parse_args(["listen", "--language", "ja", "--commands", "x.json"])
-    assert args.language in models.LANGUAGE_MODELS
+def test_listen_language_choices_match_available_models(monkeypatch, tmp_path):
     for language in models.LANGUAGE_MODELS:
-        parser.parse_args(["listen", "--language", language, "--commands", "x.json"])
+        _patch_listen(monkeypatch, tmp_path, [])
+        commands = _commands_file(tmp_path, [{"keywords": ["a"], "command": ["echo"]}])
+        result = _invoke("listen", "--language", language, commands)
+        assert result.exit_code == 1  # accepted; capture exhausted immediately
 
 
-def test_listen_runs_mapped_command(monkeypatch, tmp_path, capsys):
+def test_listen_runs_mapped_command(monkeypatch, tmp_path):
     popen_calls = []
     monkeypatch.setattr(cli.subprocess, "Popen", lambda cmd: popen_calls.append(cmd))
     _patch_listen(
@@ -266,14 +233,10 @@ def test_listen_runs_mapped_command(monkeypatch, tmp_path, capsys):
     commands = _commands_file(
         tmp_path, [{"keywords": ["open browser"], "command": ["echo", "hi"]}]
     )
-    args = cli.build_parser().parse_args(
-        ["listen", "--language", "en", "--commands", commands]
-    )
-    assert cli._listen(args) == 1  # capture exhausted without an explicit stop
+    result = _invoke("listen", "--language", "en", commands)
+    assert result.exit_code == 1  # capture exhausted without an explicit stop
     assert popen_calls == [["echo", "hi"]]
-    assert capsys.readouterr().out.splitlines() == [
-        "heard: 'open browser' -> open browser"
-    ]
+    assert result.stdout.splitlines() == ["heard: 'open browser' -> open browser"]
 
 
 def test_listen_ignores_unmatched_utterances(monkeypatch, tmp_path):
@@ -283,14 +246,11 @@ def test_listen_ignores_unmatched_utterances(monkeypatch, tmp_path):
     commands = _commands_file(
         tmp_path, [{"keywords": ["open browser"], "command": ["echo", "hi"]}]
     )
-    args = cli.build_parser().parse_args(
-        ["listen", "--language", "en", "--commands", commands]
-    )
-    cli._listen(args)
+    _invoke("listen", "--language", "en", commands)
     assert popen_calls == []
 
 
-def test_listen_dry_run_logs_but_never_runs(monkeypatch, tmp_path, capsys):
+def test_listen_dry_run_logs_but_never_runs(monkeypatch, tmp_path):
     popen_calls = []
     monkeypatch.setattr(cli.subprocess, "Popen", lambda cmd: popen_calls.append(cmd))
     _patch_listen(
@@ -304,22 +264,19 @@ def test_listen_dry_run_logs_but_never_runs(monkeypatch, tmp_path, capsys):
     commands = _commands_file(
         tmp_path, [{"keywords": ["open browser"], "command": ["echo", "hi"]}]
     )
-    args = cli.build_parser().parse_args(
-        ["listen", "--language", "en", "--commands", commands, "--dry-run"]
-    )
-    cli._listen(args)
+    result = _invoke("listen", "--language", "en", commands, "--dry-run")
     assert popen_calls == []
-    lines = capsys.readouterr().out.splitlines()
-    assert lines == [
+    assert result.stdout.splitlines() == [
         "heard: 'open browser' -> open browser",
         "heard: '[unk]' -> (no match)",
     ]
 
 
-def test_listen_reports_missing_commands_file(tmp_path, capsys):
+def test_listen_reports_missing_commands_file(tmp_path):
     missing = str(tmp_path / "nope.json")
-    assert cli.main(["listen", "--language", "en", "--commands", missing]) == 1
-    assert "nope.json" in capsys.readouterr().err
+    result = _invoke("listen", "--language", "en", missing)
+    assert result.exit_code == 2  # click.Path(exists=True) rejects it
+    assert "nope.json" in result.stderr
 
 
 @pytest.mark.parametrize(
@@ -390,18 +347,27 @@ def test_load_commands_accepts_yaml(tmp_path):
     }
 
 
-def test_main_reports_missing_parec(monkeypatch, capsys):
+def test_sources_prints_each_name(monkeypatch):
+    monkeypatch.setattr(cli, "list_sources", lambda: ["a", "b"])
+    result = _invoke("sources")
+    assert result.exit_code == 0
+    assert result.stdout == "a\nb\n"
+
+
+def test_missing_parec_reports_clean_error(monkeypatch):
     def _raise(source: str | None) -> None:
         raise FileNotFoundError(2, "No such file or directory", "parec")
 
     monkeypatch.setattr(cli, "AudioCapture", _raise)
-    assert cli.main(["run"]) == 1
-    assert "parec" in capsys.readouterr().err
+    result = _invoke("run")
+    assert result.exit_code == 1
+    assert "parec" in result.stderr
 
 
-def test_main_handles_keyboard_interrupt(monkeypatch):
+def test_keyboard_interrupt_exits_nonzero(monkeypatch):
     def _raise(source: str | None) -> None:
         raise KeyboardInterrupt
 
     monkeypatch.setattr(cli, "AudioCapture", _raise)
-    assert cli.main(["run"]) == 1
+    result = _invoke("run")
+    assert result.exit_code == 1

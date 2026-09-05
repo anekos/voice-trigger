@@ -66,7 +66,7 @@ voice-trigger run -s SOURCE_NAME -l -- notify-send "triggered"
 ```
 
 ```sh
-voice-trigger listen --language ja --commands commands.yaml
+voice-trigger listen --language ja commands.yaml
 ```
 
 YAML は JSON のスーパーセットなので、同じ構造の JSON ファイルもそのまま使える。
@@ -79,7 +79,7 @@ YAML は JSON のスーパーセットなので、同じ構造の JSON ファイ
 - `--dry-run` を付けるとログは同じだがコマンドは実行しない。キーワード表記の調整に使う。
 
 ```sh
-voice-trigger listen --language ja --commands commands.json --dry-run
+voice-trigger listen --language ja commands.yaml --dry-run
 ```
 
 ## オプション一覧
@@ -92,5 +92,6 @@ voice-trigger listen --language ja --commands commands.json --dry-run
 | `--timeout` | `-T` | run |
 | `--loop` | `-l` | run |
 | `--language` | | listen |
-| `--commands` | | listen |
 | `--dry-run` | | listen |
+
+`listen` のマッピングファイルはオプションではなく位置引数で渡す。
