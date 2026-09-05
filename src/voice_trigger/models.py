@@ -10,9 +10,13 @@ from pathlib import Path
 import httpx
 from app_paths import get_paths
 
+# Grammar-constrained recognition needs a dynamic-graph model (HCLr/Gr.fst);
+# the big static-graph models (HCLG.fst) reject runtime grammars. So this is
+# the largest dynamic-graph model per language: en has a big lgraph build,
+# ja only ships the small one.
 LANGUAGE_MODELS = {
     "ja": "vosk-model-small-ja-0.22",
-    "en": "vosk-model-small-en-us-0.15",
+    "en": "vosk-model-en-us-0.22-lgraph",
 }
 MODEL_BASE_URL = "https://alphacephei.com/vosk/models"
 

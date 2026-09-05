@@ -74,7 +74,7 @@ voice-trigger listen commands.yaml
 YAML は JSON のスーパーセットなので、同じ構造の JSON ファイルもそのまま使える。
 
 - 言語は `ja` または `en`。設定ファイルの `language` よりコマンドラインの `--language` が優先される(`source` と `-s` も同様)。どちらにも言語が無ければエラー。
-- 対応する [Vosk](https://alphacephei.com/vosk/) モデル(~50MB)が無ければ初回に自動ダウンロードされる(保存先: `~/.local/share/voice-trigger/models/`)。
+- 対応する [Vosk](https://alphacephei.com/vosk/) モデルが無ければ初回に自動ダウンロードされる(保存先は `voice-trigger paths` で確認できる)。モデルはグラマー(キーワード限定)対応のもので最も精度の高いものを使う: en は `vosk-model-en-us-0.22-lgraph`(~128MB)、ja は `vosk-model-small-ja-0.22`(~48MB。より大きい ja モデルは静的グラフのためキーワード限定認識に使えない)。
 - 認識対象は JSON のキーワード + 未知語(`[unk]`)に制限されるため、無関係な発話では誤発火しにくい。
 - キーワードに `"[unk]"` を指定すると、どのキーワードにもマッチしなかった発話(未知語)で発火するキャッチオールになる(無音では発火しない)。
 - 認識結果とキーワードの照合は空白を無視して行う。
