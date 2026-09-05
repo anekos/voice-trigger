@@ -14,7 +14,7 @@ from voice_trigger.audio import SAMPLE_RATE, AudioCapture
 from voice_trigger.config import load_config
 from voice_trigger.detector import OnsetDetector, peak_level
 from voice_trigger.models import LANGUAGE_MODELS, ensure_model
-from voice_trigger.recognizer import CommandRecognizer
+from voice_trigger.recognizer import CommandRecognizer, Vocabulary
 from voice_trigger.sources import get_default_source, list_sources
 
 MONITOR_DISPLAY_INTERVAL = 0.1  # seconds; throttles monitor's output to a readable rate
@@ -221,6 +221,29 @@ def listen(
             if not dry_run and result.phrase is not None:
                 subprocess.Popen(commands[result.phrase])
     ctx.exit(1)
+
+
+@cli.command()
+@click.argument("language", type=click.Choice(tuple(LANGUAGE_MODELS)))
+@_cli_errors
+def vocab(language: str) -> None:
+    """Interactively check words against the LANGUAGE model's vocabulary.
+
+    Type a keyword per line (space-separated words are checked
+    individually); each word is reported as `ok` or `missing`. A missing
+    word can never be recognized, so rewrite such keywords until every
+    word is `ok` — e.g. the ja model knows ブラウザ but not ぶらうざ.
+    Exit with Ctrl-D.
+    """
+    vocabulary = Vocabulary.load(ensure_model(language))
+    prompt = "> " if sys.stdin.isatty() else ""
+    while True:
+        try:
+            line = input(prompt)
+        except EOFError:
+            break
+        for word in line.split():
+            print(f"{word}: {'ok' if word in vocabulary else 'missing'}")
 
 
 @cli.command()

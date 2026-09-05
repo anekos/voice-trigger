@@ -5,6 +5,7 @@ import json
 from voice_trigger.recognizer import (
     CommandRecognizer,
     Recognition,
+    Vocabulary,
     build_grammar,
     normalize,
 )
@@ -71,6 +72,17 @@ def test_configured_unk_catches_any_unmatched_utterance():
 def test_configured_unk_does_not_fire_on_silence():
     recognizer = CommandRecognizer(_FakeSpeechRecognizer([""]), ["[unk]"])
     assert recognizer.process(b"") is None
+
+
+class _FakeModel:
+    def vosk_model_find_word(self, word: str) -> int:
+        return 42 if word == "known" else -1
+
+
+def test_vocabulary_membership():
+    vocabulary = Vocabulary(_FakeModel())
+    assert "known" in vocabulary
+    assert "unknown" not in vocabulary
 
 
 def test_build_grammar_appends_unk_without_duplicating_it():

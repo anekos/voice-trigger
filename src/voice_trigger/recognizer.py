@@ -37,6 +37,21 @@ def build_grammar(phrases: Sequence[str]) -> str:
     return json.dumps(list(dict.fromkeys([*phrases, UNKNOWN])), ensure_ascii=False)
 
 
+class Vocabulary:
+    """Membership checks against a Vosk model's word list."""
+
+    def __init__(self, model: vosk.Model) -> None:
+        self._model = model
+
+    @classmethod
+    def load(cls, model_path: Path) -> Self:
+        vosk.SetLogLevel(-1)
+        return cls(vosk.Model(str(model_path)))
+
+    def __contains__(self, word: str) -> bool:
+        return self._model.vosk_model_find_word(word) >= 0
+
+
 class CommandRecognizer:
     def __init__(self, recognizer: SpeechRecognizer, phrases: Sequence[str]) -> None:
         self._recognizer = recognizer

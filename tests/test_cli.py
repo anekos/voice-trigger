@@ -329,6 +329,40 @@ def test_listen_reports_invalid_config(tmp_path):
     assert "Error:" in result.stderr
 
 
+class _FakeVocabulary:
+    def __init__(self, words: set[str]) -> None:
+        self._words = words
+
+    def __contains__(self, word: str) -> bool:
+        return word in self._words
+
+
+def test_vocab_reports_each_word_per_line(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "ensure_model", lambda language: tmp_path)
+    monkeypatch.setattr(
+        cli.Vocabulary,
+        "load",
+        lambda model_path: _FakeVocabulary({"ぶらうざ", "つぎ"}),
+    )
+    result = CliRunner().invoke(
+        cli.cli, ["vocab", "ja"], input="ぶらうざ ブラウザ\nつぎ\n"
+    )
+    assert result.exit_code == 0
+    assert result.stdout.splitlines() == [
+        "ぶらうざ: ok",
+        "ブラウザ: missing",
+        "つぎ: ok",
+    ]
+
+
+def test_vocab_requires_language():
+    assert _invoke("vocab").exit_code == 2
+
+
+def test_vocab_rejects_unknown_language():
+    assert _invoke("vocab", "de").exit_code == 2
+
+
 def test_sources_prints_each_name(monkeypatch):
     monkeypatch.setattr(cli, "list_sources", lambda: ["a", "b"])
     result = _invoke("sources")
