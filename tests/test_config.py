@@ -29,6 +29,9 @@ def _write(tmp_path, content: str) -> str:
         '{"commands": [{"keywords": ["a"], "command": []}]}',
         '{"commands": [{"keywords": ["a", 1], "command": ["x"]}]}',
         '{"commands": [{"keywords": ["a"], "command": "not-a-list"}]}',
+        '{"commands": [{"keywords": ["a"], "command": ["x"], "place-holder": ""}]}',
+        '{"commands": [{"keywords": ["a"], "command": ["x"], "place-holder": 1}]}',
+        '{"commands": [{"keywords": ["a"], "command": ["x"], "placeholder": "%s"}]}',
         '{"commands": [{"keywords": ["a"], "command": ["x"]}], "unknown": 1}',
         '{"commands": [{"keywords": ["a"], "command": ["x"]}], "language": "de"}',
         '{"commands": [{"keywords": ["a"], "command": ["x"]}], "source": 1}',
@@ -52,7 +55,7 @@ def test_load_config_rejects_duplicate_keywords_across_entries(tmp_path):
         load_config(_write(tmp_path, content))
 
 
-def test_keyword_commands_maps_every_keyword_to_its_command(tmp_path):
+def test_keyword_entries_map_every_keyword_to_its_entry(tmp_path):
     content = json.dumps(
         {
             "commands": [
@@ -65,13 +68,42 @@ def test_keyword_commands_maps_every_keyword_to_its_command(tmp_path):
         }
     )
     config = load_config(_write(tmp_path, content))
-    assert config.keyword_commands() == {
+    entries = config.keyword_entries()
+    assert {keyword: entry.command for keyword, entry in entries.items()} == {
         "ブラウザ ひらいて": ["xdg-open", "https://a"],
         "ぶらうざ": ["xdg-open", "https://a"],
         "つぎ": ["playerctl", "next"],
     }
+    assert entries["ブラウザ ひらいて"] is entries["ぶらうざ"]
     assert config.language is None
     assert config.source is None
+
+
+def test_build_command_without_placeholder_returns_argv_verbatim(tmp_path):
+    content = json.dumps({"commands": [{"keywords": ["a"], "command": ["echo", "%s"]}]})
+    entry = load_config(_write(tmp_path, content)).commands[0]
+    assert entry.placeholder is None
+    assert entry.build_command("聞いた 内容") == ["echo", "%s"]
+
+
+def test_build_command_fills_placeholder_in_every_argument(tmp_path):
+    content = json.dumps(
+        {
+            "commands": [
+                {
+                    "keywords": ["赤", "青"],
+                    "place-holder": "%s",
+                    "command": ["notify-send", "%s", "heard: %s / %s"],
+                }
+            ]
+        }
+    )
+    entry = load_config(_write(tmp_path, content)).commands[0]
+    assert entry.build_command("赤") == [
+        "notify-send",
+        "赤",
+        "heard: 赤 / 赤",
+    ]
 
 
 def test_load_config_accepts_yaml_with_settings(tmp_path):
@@ -87,7 +119,8 @@ def test_load_config_accepts_yaml_with_settings(tmp_path):
     config = load_config(_write(tmp_path, content))
     assert config.language == "ja"
     assert config.source == "mysrc"
-    assert config.keyword_commands() == {
+    entries = config.keyword_entries()
+    assert {keyword: entry.command for keyword, entry in entries.items()} == {
         "ぶらうざ": ["xdg-open", "https://a"],
         "つぎ": ["playerctl", "next"],
         "ねくすと": ["playerctl", "next"],

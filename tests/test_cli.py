@@ -285,6 +285,29 @@ def test_listen_runs_mapped_command(monkeypatch, tmp_path):
     assert result.stdout.splitlines() == ["heard: 'open browser' -> open browser"]
 
 
+def test_listen_fills_placeholder_with_recognized_text(monkeypatch, tmp_path):
+    popen_calls = []
+    monkeypatch.setattr(cli.subprocess, "Popen", lambda cmd: popen_calls.append(cmd))
+    _patch_listen(
+        monkeypatch,
+        tmp_path,
+        [Recognition(text="ブラウザ ひらいて", phrase="ブラウザ ひらいて")],
+    )
+    config = _config_file(
+        tmp_path,
+        [
+            {
+                "keywords": ["ブラウザ ひらいて"],
+                "place-holder": "%s",
+                "command": ["notify-send", "heard: %s"],
+            }
+        ],
+        language="ja",
+    )
+    _invoke("listen", config)
+    assert popen_calls == [["notify-send", "heard: ブラウザ ひらいて"]]
+
+
 def test_listen_ignores_unmatched_utterances(monkeypatch, tmp_path):
     popen_calls = []
     monkeypatch.setattr(cli.subprocess, "Popen", lambda cmd: popen_calls.append(cmd))

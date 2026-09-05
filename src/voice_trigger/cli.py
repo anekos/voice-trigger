@@ -206,10 +206,10 @@ def listen(
             "no language given: pass --language or set `language` in CONFIG_FILE"
         )
     source = source or config.source
-    commands = config.keyword_commands()
+    entries = config.keyword_entries()
     model_path = ensure_model(language)
     command_recognizer = CommandRecognizer.create(
-        model_path, list(commands), SAMPLE_RATE
+        model_path, list(entries), SAMPLE_RATE
     )
     with AudioCapture(source) as capture:
         _print_selected_source(source)
@@ -219,7 +219,7 @@ def listen(
                 continue
             print(f"heard: {result.text!r} -> {result.phrase or '(no match)'}")
             if not dry_run and result.phrase is not None:
-                subprocess.Popen(commands[result.phrase])
+                subprocess.Popen(entries[result.phrase].build_command(result.text))
     ctx.exit(1)
 
 

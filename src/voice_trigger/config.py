@@ -13,6 +13,13 @@ class CommandEntry(BaseModel):
 
     keywords: list[str] = Field(min_length=1)
     command: list[str] = Field(min_length=1)
+    placeholder: str | None = Field(None, alias="place-holder", min_length=1)
+
+    def build_command(self, text: str) -> list[str]:
+        """The argv to run, with the recognized text filling the placeholder."""
+        if self.placeholder is None:
+            return self.command
+        return [arg.replace(self.placeholder, text) for arg in self.command]
 
 
 class Config(BaseModel):
@@ -32,13 +39,9 @@ class Config(BaseModel):
                 seen.add(keyword)
         return self
 
-    def keyword_commands(self) -> dict[str, list[str]]:
-        """Flatten the entries into a keyword -> argv mapping."""
-        return {
-            keyword: entry.command
-            for entry in self.commands
-            for keyword in entry.keywords
-        }
+    def keyword_entries(self) -> dict[str, CommandEntry]:
+        """Flatten the entries into a keyword -> entry mapping."""
+        return {keyword: entry for entry in self.commands for keyword in entry.keywords}
 
 
 def load_config(path: str) -> Config:
