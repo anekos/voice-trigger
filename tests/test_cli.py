@@ -363,6 +363,19 @@ def test_vocab_rejects_unknown_language():
     assert _invoke("vocab", "de").exit_code == 2
 
 
+def test_paths_prints_model_locations_and_download_state(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "models_dir", lambda: tmp_path)
+    ja_model = tmp_path / models.LANGUAGE_MODELS["ja"]
+    ja_model.mkdir()
+    result = _invoke("paths")
+    assert result.exit_code == 0
+    lines = result.stdout.splitlines()
+    assert lines[0] == f"models: {tmp_path}"
+    assert f"model[ja]: {ja_model} (downloaded)" in lines
+    en_model = tmp_path / models.LANGUAGE_MODELS["en"]
+    assert f"model[en]: {en_model} (not downloaded)" in lines
+
+
 def test_sources_prints_each_name(monkeypatch):
     monkeypatch.setattr(cli, "list_sources", lambda: ["a", "b"])
     result = _invoke("sources")

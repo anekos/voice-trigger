@@ -13,7 +13,7 @@ import click
 from voice_trigger.audio import SAMPLE_RATE, AudioCapture
 from voice_trigger.config import load_config
 from voice_trigger.detector import OnsetDetector, peak_level
-from voice_trigger.models import LANGUAGE_MODELS, ensure_model
+from voice_trigger.models import LANGUAGE_MODELS, ensure_model, models_dir
 from voice_trigger.recognizer import CommandRecognizer, Vocabulary
 from voice_trigger.sources import get_default_source, list_sources
 
@@ -244,6 +244,21 @@ def vocab(language: str) -> None:
             break
         for word in line.split():
             print(f"{word}: {'ok' if word in vocabulary else 'missing'}")
+
+
+@cli.command()
+@_cli_errors
+def paths() -> None:
+    """Print where voice-trigger stores its files.
+
+    Shows the model storage directory and each language's model path,
+    with whether that model has been downloaded yet.
+    """
+    print(f"models: {models_dir()}")
+    for language, model_name in LANGUAGE_MODELS.items():
+        path = models_dir() / model_name
+        state = "downloaded" if path.is_dir() else "not downloaded"
+        print(f"model[{language}]: {path} ({state})")
 
 
 @cli.command()
