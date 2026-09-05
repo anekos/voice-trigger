@@ -120,6 +120,7 @@ def test_run_one_shot_without_command_exits_zero_on_trigger(monkeypatch):
 
 
 def test_run_timeout_without_detection_exits_nonzero(monkeypatch):
+    monkeypatch.setattr(cli, "get_default_source", lambda: "defaultsrc")
     monkeypatch.setattr(cli, "AudioCapture", _FakeAudioCapture([_quiet_chunk()] * 3))
     monkeypatch.setattr(cli.time, "monotonic", _fake_clock([0.0, 0.1, 0.2, 10.0]))
     args = cli.build_parser().parse_args(["run", "--timeout", "5"])
