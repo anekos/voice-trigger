@@ -9,11 +9,11 @@ import time
 from collections.abc import Callable
 
 import click
-import yaml
 
 from voice_trigger.audio import SAMPLE_RATE, AudioCapture
+from voice_trigger.config import load_config
 from voice_trigger.detector import OnsetDetector, peak_level
-from voice_trigger.models import ensure_model
+from voice_trigger.models import LANGUAGE_MODELS, ensure_model
 from voice_trigger.recognizer import CommandRecognizer
 from voice_trigger.sources import get_default_source, list_sources
 
@@ -165,38 +165,48 @@ def monitor(source: str | None, threshold: float) -> None:
 @_source_option
 @click.option(
     "--language",
-    required=True,
-    type=click.Choice(("ja", "en")),
-    help="Recognition language; picks which Vosk model to use.",
+    default=None,
+    type=click.Choice(tuple(LANGUAGE_MODELS)),
+    help="Recognition language; picks which Vosk model to use. Overrides "
+    "`language` from CONFIG_FILE.",
 )
 @click.argument(
-    "commands_file",
-    metavar="COMMANDS_FILE",
+    "config_file",
+    metavar="CONFIG_FILE",
     type=click.Path(exists=True, dir_okay=False),
 )
 @click.option(
     "--dry-run",
     is_flag=True,
     help="Recognize and log as usual but never run any command; use this "
-    "to tune the keywords in COMMANDS_FILE.",
+    "to tune the keywords in CONFIG_FILE.",
 )
 @click.pass_context
 @_cli_errors
 def listen(
     ctx: click.Context,
     source: str | None,
-    language: str,
-    commands_file: str,
+    language: str | None,
+    config_file: str,
     dry_run: bool,
 ) -> None:
     """Run commands mapped to recognized voice keywords.
 
-    COMMANDS_FILE is a YAML (or JSON) array of {"keywords": [...],
-    "command": [...]} entries; each entry's command (an argv array) runs
-    when any of its keywords is recognized. The Vosk model for --language
-    is downloaded automatically on first use.
+    CONFIG_FILE is a YAML (or JSON) object holding `commands` — an array of
+    {"keywords": [...], "command": [...]} entries; each entry's command (an
+    argv array) runs when any of its keywords is recognized — and optional
+    `language` and `source` settings, which the corresponding command-line
+    options override. The Vosk model for the language is downloaded
+    automatically on first use.
     """
-    commands = _load_commands(commands_file)
+    config = load_config(config_file)
+    language = language or config.language
+    if language is None:
+        raise click.UsageError(
+            "no language given: pass --language or set `language` in CONFIG_FILE"
+        )
+    source = source or config.source
+    commands = config.keyword_commands()
     model_path = ensure_model(language)
     command_recognizer = CommandRecognizer.create(
         model_path, list(commands), SAMPLE_RATE
@@ -219,50 +229,6 @@ def sources() -> None:
     """List available PulseAudio/PipeWire recording source names."""
     for name in list_sources():
         print(name)
-
-
-def _load_commands(path: str) -> dict[str, list[str]]:
-    """Flatten the config entries into a keyword -> argv mapping."""
-    with open(path) as file:
-        try:
-            # YAML is a superset of JSON, so one parser covers both formats.
-            data = yaml.safe_load(file)
-        except yaml.YAMLError as error:
-            raise RuntimeError(f"{path} is not valid YAML: {error}") from error
-    if not isinstance(data, list) or not data:
-        raise RuntimeError(f"{path} must be a non-empty array")
-    commands: dict[str, list[str]] = {}
-    for index, entry in enumerate(data):
-        keywords, command = _parse_command_entry(path, index, entry)
-        for keyword in keywords:
-            if keyword in commands:
-                raise RuntimeError(f"{path}: duplicate keyword {keyword!r}")
-            commands[keyword] = command
-    return commands
-
-
-def _parse_command_entry(
-    path: str, index: int, entry: object
-) -> tuple[list[str], list[str]]:
-    if (
-        isinstance(entry, dict)
-        and entry.keys() == {"keywords", "command"}
-        and _is_string_array(entry["keywords"])
-        and _is_string_array(entry["command"])
-    ):
-        return entry["keywords"], entry["command"]
-    raise RuntimeError(
-        f"{path}: entry {index} must be an object with non-empty string "
-        'arrays "keywords" and "command"'
-    )
-
-
-def _is_string_array(value: object) -> bool:
-    return (
-        isinstance(value, list)
-        and bool(value)
-        and all(isinstance(item, str) for item in value)
-    )
 
 
 def _print_selected_source(source: str | None) -> None:

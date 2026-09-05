@@ -5,7 +5,6 @@ from array import array
 from collections.abc import Iterator
 from typing import Self
 
-import pytest
 from click.testing import CliRunner
 
 from voice_trigger import cli, models
@@ -186,40 +185,89 @@ class _FakeCommandRecognizer:
         return next(self._results)
 
 
-def _patch_listen(monkeypatch, tmp_path, results: list[Recognition | None]):
+def _patch_listen(
+    monkeypatch, tmp_path, results: list[Recognition | None]
+) -> list[str]:
+    """Fake audio and recognition; returns the languages passed to ensure_model."""
+    languages: list[str] = []
+
+    def ensure_model(language: str):
+        languages.append(language)
+        return tmp_path
+
     monkeypatch.setattr(cli, "get_default_source", lambda: "defaultsrc")
     monkeypatch.setattr(
         cli, "AudioCapture", _FakeAudioCapture([_quiet_chunk()] * len(results))
     )
-    monkeypatch.setattr(cli, "ensure_model", lambda language: tmp_path)
+    monkeypatch.setattr(cli, "ensure_model", ensure_model)
     monkeypatch.setattr(
         cli.CommandRecognizer,
         "create",
         lambda model_path, phrases, sample_rate: _FakeCommandRecognizer(results),
     )
+    return languages
 
 
-def _commands_file(tmp_path, mapping) -> str:
-    path = tmp_path / "commands.json"
-    path.write_text(json.dumps(mapping))
+_ECHO_COMMANDS = [{"keywords": ["open browser"], "command": ["echo", "hi"]}]
+
+
+def _config_file(tmp_path, commands, **settings) -> str:
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"commands": commands, **settings}))
     return str(path)
 
 
-def test_listen_requires_language_and_commands():
+def test_listen_requires_config_file():
     assert _invoke("listen").exit_code == 2
 
 
-def test_listen_rejects_unknown_language():
-    result = _invoke("listen", "--language", "de", "commands.json")
-    assert result.exit_code == 2
+def test_listen_rejects_unknown_language(tmp_path):
+    config = _config_file(tmp_path, _ECHO_COMMANDS)
+    assert _invoke("listen", "--language", "de", config).exit_code == 2
 
 
-def test_listen_language_choices_match_available_models(monkeypatch, tmp_path):
+def test_listen_accepts_every_available_model_language(monkeypatch, tmp_path):
     for language in models.LANGUAGE_MODELS:
         _patch_listen(monkeypatch, tmp_path, [])
-        commands = _commands_file(tmp_path, [{"keywords": ["a"], "command": ["echo"]}])
-        result = _invoke("listen", "--language", language, commands)
+        config = _config_file(tmp_path, _ECHO_COMMANDS)
+        result = _invoke("listen", "--language", language, config)
         assert result.exit_code == 1  # accepted; capture exhausted immediately
+
+
+def test_listen_requires_language_from_option_or_config(monkeypatch, tmp_path):
+    _patch_listen(monkeypatch, tmp_path, [])
+    config = _config_file(tmp_path, _ECHO_COMMANDS)
+    result = _invoke("listen", config)
+    assert result.exit_code == 2
+    assert "language" in result.stderr
+
+
+def test_listen_takes_language_from_config(monkeypatch, tmp_path):
+    languages = _patch_listen(monkeypatch, tmp_path, [])
+    config = _config_file(tmp_path, _ECHO_COMMANDS, language="ja")
+    assert _invoke("listen", config).exit_code == 1
+    assert languages == ["ja"]
+
+
+def test_listen_language_option_overrides_config(monkeypatch, tmp_path):
+    languages = _patch_listen(monkeypatch, tmp_path, [])
+    config = _config_file(tmp_path, _ECHO_COMMANDS, language="ja")
+    assert _invoke("listen", "--language", "en", config).exit_code == 1
+    assert languages == ["en"]
+
+
+def test_listen_takes_source_from_config(monkeypatch, tmp_path):
+    _patch_listen(monkeypatch, tmp_path, [])
+    config = _config_file(tmp_path, _ECHO_COMMANDS, language="ja", source="cfgsrc")
+    result = _invoke("listen", config)
+    assert result.stderr == "source: cfgsrc\n"
+
+
+def test_listen_source_option_overrides_config(monkeypatch, tmp_path):
+    _patch_listen(monkeypatch, tmp_path, [])
+    config = _config_file(tmp_path, _ECHO_COMMANDS, language="ja", source="cfgsrc")
+    result = _invoke("listen", "-s", "optsrc", config)
+    assert result.stderr == "source: optsrc\n"
 
 
 def test_listen_runs_mapped_command(monkeypatch, tmp_path):
@@ -230,10 +278,8 @@ def test_listen_runs_mapped_command(monkeypatch, tmp_path):
         tmp_path,
         [None, Recognition(text="open browser", phrase="open browser")],
     )
-    commands = _commands_file(
-        tmp_path, [{"keywords": ["open browser"], "command": ["echo", "hi"]}]
-    )
-    result = _invoke("listen", "--language", "en", commands)
+    config = _config_file(tmp_path, _ECHO_COMMANDS)
+    result = _invoke("listen", "--language", "en", config)
     assert result.exit_code == 1  # capture exhausted without an explicit stop
     assert popen_calls == [["echo", "hi"]]
     assert result.stdout.splitlines() == ["heard: 'open browser' -> open browser"]
@@ -243,10 +289,8 @@ def test_listen_ignores_unmatched_utterances(monkeypatch, tmp_path):
     popen_calls = []
     monkeypatch.setattr(cli.subprocess, "Popen", lambda cmd: popen_calls.append(cmd))
     _patch_listen(monkeypatch, tmp_path, [Recognition(text="[unk]", phrase=None)])
-    commands = _commands_file(
-        tmp_path, [{"keywords": ["open browser"], "command": ["echo", "hi"]}]
-    )
-    _invoke("listen", "--language", "en", commands)
+    config = _config_file(tmp_path, _ECHO_COMMANDS)
+    _invoke("listen", "--language", "en", config)
     assert popen_calls == []
 
 
@@ -261,10 +305,8 @@ def test_listen_dry_run_logs_but_never_runs(monkeypatch, tmp_path):
             Recognition(text="[unk]", phrase=None),
         ],
     )
-    commands = _commands_file(
-        tmp_path, [{"keywords": ["open browser"], "command": ["echo", "hi"]}]
-    )
-    result = _invoke("listen", "--language", "en", commands, "--dry-run")
+    config = _config_file(tmp_path, _ECHO_COMMANDS)
+    result = _invoke("listen", "--language", "en", config, "--dry-run")
     assert popen_calls == []
     assert result.stdout.splitlines() == [
         "heard: 'open browser' -> open browser",
@@ -272,79 +314,19 @@ def test_listen_dry_run_logs_but_never_runs(monkeypatch, tmp_path):
     ]
 
 
-def test_listen_reports_missing_commands_file(tmp_path):
+def test_listen_reports_missing_config_file(tmp_path):
     missing = str(tmp_path / "nope.json")
     result = _invoke("listen", "--language", "en", missing)
     assert result.exit_code == 2  # click.Path(exists=True) rejects it
     assert "nope.json" in result.stderr
 
 
-@pytest.mark.parametrize(
-    "content",
-    [
-        "[unclosed",
-        "just a scalar",
-        "[]",
-        "{}",
-        '["not-an-object"]',
-        '[{"keywords": ["a"]}]',
-        '[{"keywords": ["a"], "command": ["x"], "extra": 1}]',
-        '[{"keywords": [], "command": ["x"]}]',
-        '[{"keywords": ["a"], "command": []}]',
-        '[{"keywords": ["a", 1], "command": ["x"]}]',
-        '[{"keywords": ["a"], "command": "not-a-list"}]',
-    ],
-)
-def test_load_commands_rejects_invalid_mappings(tmp_path, content):
-    path = tmp_path / "commands.json"
-    path.write_text(content)
-    with pytest.raises(RuntimeError):
-        cli._load_commands(str(path))
-
-
-def test_load_commands_rejects_duplicate_keywords(tmp_path):
-    path = _commands_file(
-        tmp_path,
-        [
-            {"keywords": ["a"], "command": ["x"]},
-            {"keywords": ["b", "a"], "command": ["y"]},
-        ],
-    )
-    with pytest.raises(RuntimeError, match="duplicate keyword 'a'"):
-        cli._load_commands(path)
-
-
-def test_load_commands_maps_every_keyword_to_its_command(tmp_path):
-    path = _commands_file(
-        tmp_path,
-        [
-            {
-                "keywords": ["ブラウザ ひらいて", "ぶらうざ"],
-                "command": ["xdg-open", "https://a"],
-            },
-            {"keywords": ["つぎ"], "command": ["playerctl", "next"]},
-        ],
-    )
-    assert cli._load_commands(path) == {
-        "ブラウザ ひらいて": ["xdg-open", "https://a"],
-        "ぶらうざ": ["xdg-open", "https://a"],
-        "つぎ": ["playerctl", "next"],
-    }
-
-
-def test_load_commands_accepts_yaml(tmp_path):
-    path = tmp_path / "commands.yaml"
-    path.write_text(
-        "- keywords: [ぶらうざ]\n"
-        "  command: [xdg-open, 'https://a']\n"
-        "- keywords: [つぎ, ねくすと]\n"
-        "  command: [playerctl, next]\n"
-    )
-    assert cli._load_commands(str(path)) == {
-        "ぶらうざ": ["xdg-open", "https://a"],
-        "つぎ": ["playerctl", "next"],
-        "ねくすと": ["playerctl", "next"],
-    }
+def test_listen_reports_invalid_config(tmp_path):
+    path = tmp_path / "config.json"
+    path.write_text('{"commands": []}')
+    result = _invoke("listen", "--language", "en", str(path))
+    assert result.exit_code == 1
+    assert "Error:" in result.stderr
 
 
 def test_sources_prints_each_name(monkeypatch):
