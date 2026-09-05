@@ -502,7 +502,9 @@ def test_run_and_timeout_are_mutually_exclusive():
 
 
 def test_parses_command_after_dashdash():
-    args = cli.build_parser().parse_args(["run", "--threshold", "0.4", "--", "echo", "hi"])
+    args = cli.build_parser().parse_args(
+        ["run", "--threshold", "0.4", "--", "echo", "hi"]
+    )
     assert args.threshold == 0.4
     assert args.command == ["echo", "hi"]
 
@@ -536,7 +538,9 @@ def test_run_loop_keeps_triggering_command(monkeypatch):
     popen_calls = []
     monkeypatch.setattr(cli.subprocess, "Popen", lambda cmd: popen_calls.append(cmd))
     monkeypatch.setattr(
-        cli, "AudioCapture", _FakeAudioCapture([_loud_chunk(), _quiet_chunk(), _loud_chunk()])
+        cli,
+        "AudioCapture",
+        _FakeAudioCapture([_loud_chunk(), _quiet_chunk(), _loud_chunk()]),
     )
     monkeypatch.setattr(cli.time, "monotonic", _fake_clock([0.0, 0.0, 1.0, 2.0]))
     args = cli.build_parser().parse_args(["run", "--loop", "--", "echo", "hi"])
@@ -545,7 +549,9 @@ def test_run_loop_keeps_triggering_command(monkeypatch):
 
 
 def test_monitor_prints_level_for_each_chunk(monkeypatch, capsys):
-    monkeypatch.setattr(cli, "AudioCapture", _FakeAudioCapture([_quiet_chunk(), _loud_chunk()]))
+    monkeypatch.setattr(
+        cli, "AudioCapture", _FakeAudioCapture([_quiet_chunk(), _loud_chunk()])
+    )
     args = cli.build_parser().parse_args(["monitor"])
     assert cli._monitor(args) == 0
     lines = capsys.readouterr().out.strip().splitlines()
