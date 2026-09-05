@@ -54,12 +54,43 @@ voice-trigger run -s SOURCE_NAME -l -- notify-send "triggered"
 
 `--cooldown`(`-c`。デフォルト0.5秒)は、`--loop` 使用時に1回の音で多重発火しないための不感時間。ワンショットモードでは検知した時点で即終了するため効果を持たない。
 
+## 音声コマンド(listen)
+
+特定のキーワードを音声認識して、対応するコマンドを実行する。マッピングは YAML(または JSON)の配列で渡す。1エントリは `keywords`(キーワードの配列。どれを認識しても発火する)と `command`(実行するコマンドの argv 配列)を持つ:
+
+```yaml
+- keywords: [ブラウザ ひらいて, ぶらうざ]
+  command: [xdg-open, "https://example.com"]
+- keywords: [つぎ, ねくすと]
+  command: [playerctl, next]
+```
+
+```sh
+voice-trigger listen --language ja --commands commands.yaml
+```
+
+YAML は JSON のスーパーセットなので、同じ構造の JSON ファイルもそのまま使える。
+
+- 言語は `--language ja` または `--language en`。対応する [Vosk](https://alphacephei.com/vosk/) モデル(~50MB)が無ければ初回に自動ダウンロードされる(保存先: `~/.local/share/voice-trigger/models/`)。
+- 認識対象は JSON のキーワード + 未知語(`[unk]`)に制限されるため、無関係な発話では誤発火しにくい。
+- キーワードに `"[unk]"` を指定すると、どのキーワードにもマッチしなかった発話(未知語)で発火するキャッチオールになる(無音では発火しない)。
+- 認識結果とキーワードの照合は空白を無視して行う。日本語のキーワードは、ひらがな中心の単純な表記のほうが認識されやすい。
+- 認識するたびに `heard: '認識結果' -> マッチしたキーワード` のログを表示する。
+- `--dry-run` を付けるとログは同じだがコマンドは実行しない。キーワード表記の調整に使う。
+
+```sh
+voice-trigger listen --language ja --commands commands.json --dry-run
+```
+
 ## オプション一覧
 
 | ロング形式 | ショート形式 | サブコマンド |
 |---|---|---|
-| `--source` | `-s` | run, monitor |
+| `--source` | `-s` | run, monitor, listen |
 | `--threshold` | `-t` | run, monitor |
 | `--cooldown` | `-c` | run |
 | `--timeout` | `-T` | run |
 | `--loop` | `-l` | run |
+| `--language` | | listen |
+| `--commands` | | listen |
+| `--dry-run` | | listen |

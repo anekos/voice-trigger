@@ -8,8 +8,12 @@ import sys
 import time
 from collections.abc import Sequence
 
-from voice_trigger.audio import AudioCapture
+import yaml
+
+from voice_trigger.audio import SAMPLE_RATE, AudioCapture
 from voice_trigger.detector import OnsetDetector, peak_level
+from voice_trigger.models import ensure_model
+from voice_trigger.recognizer import CommandRecognizer
 from voice_trigger.sources import get_default_source, list_sources
 
 MONITOR_DISPLAY_INTERVAL = 0.1  # seconds; throttles monitor's output to a readable rate
@@ -113,6 +117,46 @@ def build_parser() -> argparse.ArgumentParser:
         help="peak level (0-1) to mark as TRIGGER in the printed output (default: 0.3)",
     )
 
+    listen_parser = subparsers.add_parser(
+        "listen",
+        description=(
+            "Recognize spoken keywords from the microphone and run the "
+            "command mapped to each keyword. The mapping comes from a YAML "
+            "(or JSON) array of entries, each running one command for any of "
+            'several keywords: [{"keywords": ["open browser", "browser"], '
+            '"command": ["xdg-open", "https://example.com"]}]. The Vosk '
+            "model for --language is downloaded automatically on first use."
+        ),
+        help="run commands mapped to recognized voice phrases",
+    )
+    listen_parser.add_argument(
+        "-s",
+        "--source",
+        default=None,
+        help="recording source name (see `voice-trigger sources`); "
+        "default is the system default source",
+    )
+    listen_parser.add_argument(
+        "--language",
+        required=True,
+        choices=("ja", "en"),
+        help="recognition language; picks which Vosk model to use",
+    )
+    listen_parser.add_argument(
+        "--commands",
+        required=True,
+        metavar="FILE",
+        help='YAML or JSON file: array of {"keywords": [...], "command": '
+        "[...]} entries; each entry's command (an argv array) runs when "
+        "any of its keywords is recognized",
+    )
+    listen_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="recognize and log as usual but never run any command; use this "
+        "to tune the phrases in FILE",
+    )
+
     subparsers.add_parser(
         "sources",
         description="List available PulseAudio/PipeWire recording source names.",
@@ -130,6 +174,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run(args)
         if args.subcommand == "monitor":
             return _monitor(args)
+        if args.subcommand == "listen":
+            return _listen(args)
         if args.subcommand == "sources":
             return _sources()
         raise AssertionError(f"unknown subcommand: {args.subcommand}")
@@ -158,6 +204,68 @@ def _run(args: argparse.Namespace) -> int:
             elif deadline is not None and now >= deadline:
                 return 1
     return 1
+
+
+def _listen(args: argparse.Namespace) -> int:
+    commands = _load_commands(args.commands)
+    model_path = ensure_model(args.language)
+    command_recognizer = CommandRecognizer.create(
+        model_path, list(commands), SAMPLE_RATE
+    )
+    with AudioCapture(args.source) as capture:
+        _print_selected_source(args.source)
+        for chunk in capture.chunks():
+            result = command_recognizer.process(chunk)
+            if result is None:
+                continue
+            print(f"heard: {result.text!r} -> {result.phrase or '(no match)'}")
+            if not args.dry_run and result.phrase is not None:
+                subprocess.Popen(commands[result.phrase])
+    return 1
+
+
+def _load_commands(path: str) -> dict[str, list[str]]:
+    """Flatten the config entries into a keyword -> argv mapping."""
+    with open(path) as file:
+        try:
+            # YAML is a superset of JSON, so one parser covers both formats.
+            data = yaml.safe_load(file)
+        except yaml.YAMLError as error:
+            raise RuntimeError(f"{path} is not valid YAML: {error}") from error
+    if not isinstance(data, list) or not data:
+        raise RuntimeError(f"{path} must be a non-empty array")
+    commands: dict[str, list[str]] = {}
+    for index, entry in enumerate(data):
+        keywords, command = _parse_command_entry(path, index, entry)
+        for keyword in keywords:
+            if keyword in commands:
+                raise RuntimeError(f"{path}: duplicate keyword {keyword!r}")
+            commands[keyword] = command
+    return commands
+
+
+def _parse_command_entry(
+    path: str, index: int, entry: object
+) -> tuple[list[str], list[str]]:
+    if (
+        isinstance(entry, dict)
+        and entry.keys() == {"keywords", "command"}
+        and _is_string_array(entry["keywords"])
+        and _is_string_array(entry["command"])
+    ):
+        return entry["keywords"], entry["command"]
+    raise RuntimeError(
+        f"{path}: entry {index} must be an object with non-empty string "
+        'arrays "keywords" and "command"'
+    )
+
+
+def _is_string_array(value: object) -> bool:
+    return (
+        isinstance(value, list)
+        and bool(value)
+        and all(isinstance(item, str) for item in value)
+    )
 
 
 def _monitor(args: argparse.Namespace) -> int:

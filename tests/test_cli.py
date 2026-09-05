@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import json
 from array import array
 from collections.abc import Iterator
 from typing import Self
 
 import pytest
 
-from voice_trigger import cli
+from voice_trigger import cli, models
+from voice_trigger.recognizer import Recognition
 
 
 def _chunk(amplitude: int, num_samples: int = 4) -> bytes:
@@ -204,6 +206,188 @@ def test_sources_prints_each_name(monkeypatch, capsys):
     monkeypatch.setattr(cli, "list_sources", lambda: ["a", "b"])
     assert cli._sources() == 0
     assert capsys.readouterr().out == "a\nb\n"
+
+
+class _FakeCommandRecognizer:
+    def __init__(self, results: list[Recognition | None]) -> None:
+        self._results = iter(results)
+
+    def process(self, chunk: bytes) -> Recognition | None:
+        return next(self._results)
+
+
+def _patch_listen(monkeypatch, tmp_path, results: list[Recognition | None]):
+    monkeypatch.setattr(cli, "get_default_source", lambda: "defaultsrc")
+    monkeypatch.setattr(
+        cli, "AudioCapture", _FakeAudioCapture([_quiet_chunk()] * len(results))
+    )
+    monkeypatch.setattr(cli, "ensure_model", lambda language: tmp_path)
+    monkeypatch.setattr(
+        cli.CommandRecognizer,
+        "create",
+        lambda model_path, phrases, sample_rate: _FakeCommandRecognizer(results),
+    )
+
+
+def _commands_file(tmp_path, mapping) -> str:
+    path = tmp_path / "commands.json"
+    path.write_text(json.dumps(mapping))
+    return str(path)
+
+
+def test_listen_requires_language_and_commands():
+    with pytest.raises(SystemExit):
+        cli.build_parser().parse_args(["listen"])
+
+
+def test_listen_rejects_unknown_language(tmp_path):
+    with pytest.raises(SystemExit):
+        cli.build_parser().parse_args(
+            ["listen", "--language", "de", "--commands", "commands.json"]
+        )
+
+
+def test_listen_language_choices_match_available_models():
+    parser = cli.build_parser()
+    args = parser.parse_args(["listen", "--language", "ja", "--commands", "x.json"])
+    assert args.language in models.LANGUAGE_MODELS
+    for language in models.LANGUAGE_MODELS:
+        parser.parse_args(["listen", "--language", language, "--commands", "x.json"])
+
+
+def test_listen_runs_mapped_command(monkeypatch, tmp_path, capsys):
+    popen_calls = []
+    monkeypatch.setattr(cli.subprocess, "Popen", lambda cmd: popen_calls.append(cmd))
+    _patch_listen(
+        monkeypatch,
+        tmp_path,
+        [None, Recognition(text="open browser", phrase="open browser")],
+    )
+    commands = _commands_file(
+        tmp_path, [{"keywords": ["open browser"], "command": ["echo", "hi"]}]
+    )
+    args = cli.build_parser().parse_args(
+        ["listen", "--language", "en", "--commands", commands]
+    )
+    assert cli._listen(args) == 1  # capture exhausted without an explicit stop
+    assert popen_calls == [["echo", "hi"]]
+    assert capsys.readouterr().out.splitlines() == [
+        "heard: 'open browser' -> open browser"
+    ]
+
+
+def test_listen_ignores_unmatched_utterances(monkeypatch, tmp_path):
+    popen_calls = []
+    monkeypatch.setattr(cli.subprocess, "Popen", lambda cmd: popen_calls.append(cmd))
+    _patch_listen(monkeypatch, tmp_path, [Recognition(text="[unk]", phrase=None)])
+    commands = _commands_file(
+        tmp_path, [{"keywords": ["open browser"], "command": ["echo", "hi"]}]
+    )
+    args = cli.build_parser().parse_args(
+        ["listen", "--language", "en", "--commands", commands]
+    )
+    cli._listen(args)
+    assert popen_calls == []
+
+
+def test_listen_dry_run_logs_but_never_runs(monkeypatch, tmp_path, capsys):
+    popen_calls = []
+    monkeypatch.setattr(cli.subprocess, "Popen", lambda cmd: popen_calls.append(cmd))
+    _patch_listen(
+        monkeypatch,
+        tmp_path,
+        [
+            Recognition(text="open browser", phrase="open browser"),
+            Recognition(text="[unk]", phrase=None),
+        ],
+    )
+    commands = _commands_file(
+        tmp_path, [{"keywords": ["open browser"], "command": ["echo", "hi"]}]
+    )
+    args = cli.build_parser().parse_args(
+        ["listen", "--language", "en", "--commands", commands, "--dry-run"]
+    )
+    cli._listen(args)
+    assert popen_calls == []
+    lines = capsys.readouterr().out.splitlines()
+    assert lines == [
+        "heard: 'open browser' -> open browser",
+        "heard: '[unk]' -> (no match)",
+    ]
+
+
+def test_listen_reports_missing_commands_file(tmp_path, capsys):
+    missing = str(tmp_path / "nope.json")
+    assert cli.main(["listen", "--language", "en", "--commands", missing]) == 1
+    assert "nope.json" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "[unclosed",
+        "just a scalar",
+        "[]",
+        "{}",
+        '["not-an-object"]',
+        '[{"keywords": ["a"]}]',
+        '[{"keywords": ["a"], "command": ["x"], "extra": 1}]',
+        '[{"keywords": [], "command": ["x"]}]',
+        '[{"keywords": ["a"], "command": []}]',
+        '[{"keywords": ["a", 1], "command": ["x"]}]',
+        '[{"keywords": ["a"], "command": "not-a-list"}]',
+    ],
+)
+def test_load_commands_rejects_invalid_mappings(tmp_path, content):
+    path = tmp_path / "commands.json"
+    path.write_text(content)
+    with pytest.raises(RuntimeError):
+        cli._load_commands(str(path))
+
+
+def test_load_commands_rejects_duplicate_keywords(tmp_path):
+    path = _commands_file(
+        tmp_path,
+        [
+            {"keywords": ["a"], "command": ["x"]},
+            {"keywords": ["b", "a"], "command": ["y"]},
+        ],
+    )
+    with pytest.raises(RuntimeError, match="duplicate keyword 'a'"):
+        cli._load_commands(path)
+
+
+def test_load_commands_maps_every_keyword_to_its_command(tmp_path):
+    path = _commands_file(
+        tmp_path,
+        [
+            {
+                "keywords": ["ブラウザ ひらいて", "ぶらうざ"],
+                "command": ["xdg-open", "https://a"],
+            },
+            {"keywords": ["つぎ"], "command": ["playerctl", "next"]},
+        ],
+    )
+    assert cli._load_commands(path) == {
+        "ブラウザ ひらいて": ["xdg-open", "https://a"],
+        "ぶらうざ": ["xdg-open", "https://a"],
+        "つぎ": ["playerctl", "next"],
+    }
+
+
+def test_load_commands_accepts_yaml(tmp_path):
+    path = tmp_path / "commands.yaml"
+    path.write_text(
+        "- keywords: [ぶらうざ]\n"
+        "  command: [xdg-open, 'https://a']\n"
+        "- keywords: [つぎ, ねくすと]\n"
+        "  command: [playerctl, next]\n"
+    )
+    assert cli._load_commands(str(path)) == {
+        "ぶらうざ": ["xdg-open", "https://a"],
+        "つぎ": ["playerctl", "next"],
+        "ねくすと": ["playerctl", "next"],
+    }
 
 
 def test_main_reports_missing_parec(monkeypatch, capsys):

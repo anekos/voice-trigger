@@ -18,7 +18,12 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Topic :: Multimedia :: Sound/Audio",
 ]
-dependencies = []
+dependencies = [
+    "app-paths>=0.0.8",
+    "httpx>=0.28.1",
+    "pyyaml>=6.0.3",
+    "vosk>=0.3.45",
+]
 
 [project.urls]
 Repository = "https://github.com/anekos/voice-trigger"
@@ -35,8 +40,13 @@ dev = [
     "pre-commit>=4.6.2",
     "pytest>=9.1.1",
     "ruff>=0.16.3",
+    "types-pyyaml>=6.0.12.20260815",
 ]
 
 [tool.mypy]
 mypy_path = "src"
 explicit_package_bases = true
+
+[[tool.mypy.overrides]]
+module = ["vosk", "app_paths"]
+ignore_missing_imports = true
