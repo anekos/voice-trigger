@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os.path
 from typing import Literal
 
 import yaml
@@ -16,10 +17,11 @@ class CommandEntry(BaseModel):
     placeholder: str | None = Field(None, alias="place-holder", min_length=1)
 
     def build_command(self, text: str) -> list[str]:
-        """The argv to run, with the recognized text filling the placeholder."""
-        if self.placeholder is None:
-            return self.command
-        return [arg.replace(self.placeholder, text) for arg in self.command]
+        """The argv to run: placeholder filled with the recognized text, ~ expanded."""
+        args = self.command
+        if self.placeholder is not None:
+            args = [arg.replace(self.placeholder, text) for arg in args]
+        return [os.path.expanduser(arg) for arg in args]
 
 
 class Config(BaseModel):

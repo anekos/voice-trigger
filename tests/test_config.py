@@ -106,6 +106,15 @@ def test_build_command_fills_placeholder_in_every_argument(tmp_path):
     ]
 
 
+def test_build_command_expands_tilde_at_argument_start(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", "/home/test")
+    content = json.dumps(
+        {"commands": [{"keywords": ["a"], "command": ["~/bin/run", "a~b", "~/x ~/y"]}]}
+    )
+    entry = load_config(_write(tmp_path, content)).commands[0]
+    assert entry.build_command("a") == ["/home/test/bin/run", "a~b", "/home/test/x ~/y"]
+
+
 def test_load_config_accepts_yaml_with_settings(tmp_path):
     content = (
         "language: ja\n"
